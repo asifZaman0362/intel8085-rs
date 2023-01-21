@@ -1,6 +1,7 @@
 static MEMORY_LOWER_LIMIT: usize = 1024;
 static MEMORY_UPPER_LIMIT: usize = 64000;
 
+#[derive(Clone, Copy)]
 pub enum Register {
     A,
     B,
@@ -24,7 +25,7 @@ pub struct Microcontroller {
     reg_l: u8,
     stack_pointer: (u8, u8),
     flags: u8,
-    program_counter: u16,
+    pub program_counter: u16,
     pub instruction_register: u8,
     memory: [u8; 65535],
     io: [u8; 255],
@@ -530,6 +531,21 @@ impl Microcontroller {
         self.stack_pointer = (0, 0);
         self.flags = 0;
         self.instruction_register = 0;
+    }
+
+    pub fn enable_interrupts(&mut self) {
+        self.interrupts = true;
+    }
+
+    pub fn disable_interrupts(&mut self) {
+        self.interrupts = false;
+    }
+
+    pub fn write_io(&mut self, addr: u16, byte: u8) {
+    }
+
+    pub fn read_io(&mut self, addr: u16) -> u8 {
+        0
     }
 
 }

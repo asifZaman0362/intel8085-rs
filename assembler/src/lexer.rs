@@ -11,12 +11,15 @@ static KEYWORDS: &[&str] = &[
 ];
 
 fn is_valid_identifier(lexeme: &str) -> bool {
+    if lexeme.len() > 6 {
+        return false;
+    }
     for (i, char) in lexeme.as_bytes().iter().enumerate() {
         if i == 0 {
-            if !(char.is_ascii_alphabetic() || *char == b'_') {
+            if !(char.is_ascii_alphabetic() || *char == b'?' || *char == b'@') {
                 return false;
             }
-        } else if !(char.is_ascii_alphanumeric() || *char == b'_') {
+        } else if !char.is_ascii_alphanumeric() {
             return false;
         }
     }

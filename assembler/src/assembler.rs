@@ -130,7 +130,7 @@ fn parse_first_pass(
         ("LDA", Instruction::new(0x3A, 3, 1)),
         ("LDAX", Instruction::new(0xA, 1, 1)),
         ("LHLD", Instruction::new(0x2A, 3, 1)),
-        ("LXI", Instruction::new(0x01, 1, 1)),
+        ("LXI", Instruction::new(0x01, 3, 1)),
         ("MOV", Instruction::new(0x40, 1, 2)),
         ("MVI", Instruction::new(0x06, 2, 2)),
         ("NOP", Instruction::new(0x00, 1, 0)),
@@ -219,22 +219,128 @@ fn parse_first_pass(
                         }
                         "LDA" | "LHLD" | "SHLD" | "STA" => {
                             stream.push(ParsedToken::Code(instruction.opcode));
-                            if let TokenType::U16(addr) =
-                                next_token(iterator, vec![TokenType::U16(0)])?.token
-                            {
-                                stream.push(ParsedToken::Code((addr << 8 >> 8) as u8));
-                                stream.push(ParsedToken::Code((addr >> 8) as u8));
+                            match next_token(iterator, vec![TokenType::U16(0), TokenType::U8(0)])?.token {
+                                TokenType::U8(byte) => {
+                                    stream.push(ParsedToken::Code(byte));
+                                    stream.push(ParsedToken::Code(0));
+                                }
+                                TokenType::U16(addr) => {
+                                    stream.push(ParsedToken::Code((addr << 8 >> 8) as u8));
+                                    stream.push(ParsedToken::Code((addr >> 8) as u8));
+                                }
+                                _ => unreachable!("should never happen!")
                             }
                         }
-                        "DAD" | "DCX" | "INX" => {
-                            let mut opcode = instruction.opcode;
+                        "DAD" => {
                             if let Token {
                                 position,
                                 token: TokenType::Register(reg),
                             } = next_token(iterator, vec![TokenType::Register(Register::A)])?
                             {
-                                opcode += get_register_index(&reg, position)? * 16;
+                                stream.push(ParsedToken::Code({
+                                    match reg {
+                                        Register::B => 0x09,
+                                        Register::D => 0x19,
+                                        Register::H => 0x29,
+                                        Register::SP => 0x39,
+                                        _ => {
+                                            return Err(ParseError {
+                                                position,
+                                                error: ErrorKind::InvalidArguments(
+                                                    "B, D, H or SP".to_owned(),
+                                                    format!("{:?}", reg),
+                                                ),
+                                            });
+                                        }
+                                    }
+                                }));
+                            }
+                        }
+                        "DCX" => {
+                            if let Token {
+                                position,
+                                token: TokenType::Register(reg),
+                            } = next_token(iterator, vec![TokenType::Register(Register::A)])?
+                            {
+                                stream.push(ParsedToken::Code({
+                                    match reg {
+                                        Register::B => 0x0b,
+                                        Register::D => 0x1b,
+                                        Register::H => 0x2b,
+                                        Register::SP => 0x3b,
+                                        _ => {
+                                            return Err(ParseError {
+                                                position,
+                                                error: ErrorKind::InvalidArguments(
+                                                    "B, D, H or SP".to_owned(),
+                                                    format!("{:?}", reg),
+                                                ),
+                                            });
+                                        }
+                                    }
+                                }));
+                            }
+                        }
+                        "INX" => {
+                            if let Token {
+                                position,
+                                token: TokenType::Register(reg),
+                            } = next_token(iterator, vec![TokenType::Register(Register::A)])?
+                            {
+                                stream.push(ParsedToken::Code({
+                                    match reg {
+                                        Register::B => 0x03,
+                                        Register::D => 0x13,
+                                        Register::H => 0x23,
+                                        Register::SP => 0x33,
+                                        _ => {
+                                            return Err(ParseError {
+                                                position,
+                                                error: ErrorKind::InvalidArguments(
+                                                    "B, D, H or SP".to_owned(),
+                                                    format!("{:?}", reg),
+                                                ),
+                                            });
+                                        }
+                                    }
+                                }));
+                            }
+                        }
+                        "LXI" => {
+                            if let Token {
+                                position,
+                                token: TokenType::Register(reg),
+                            } = next_token(iterator, vec![TokenType::Register(Register::A)])?
+                            {
+                                let opcode;
+                                match reg {
+                                    Register::B => opcode = 0x01,
+                                    Register::D => opcode = 0x11,
+                                    Register::H => opcode = 0x21,
+                                    Register::SP => opcode = 0x31,
+                                    _ => {
+                                        return Err(ParseError {
+                                            position,
+                                            error: ErrorKind::InvalidArguments(
+                                                "B, D, H or SP".to_owned(),
+                                                format!("{:?}", reg),
+                                            ),
+                                        });
+                                    }
+                                };
                                 stream.push(ParsedToken::Code(opcode));
+                                next_token(iterator, vec![TokenType::Comma])?;
+                                match next_token(iterator, vec![TokenType::U16(0), TokenType::U8(0)])?.token {
+                                    TokenType::U8(byte) => {
+                                        stream.push(ParsedToken::Code(byte));
+                                        stream.push(ParsedToken::Code(0));
+                                    }
+                                    TokenType::U16(addr) => {
+                                        stream.push(ParsedToken::Code((addr << 8 >> 8) as u8));
+                                        stream.push(ParsedToken::Code((addr >> 8) as u8));
+                                    }
+                                    _ => unreachable!("should never happen!")
+                                }
                             }
                         }
                         "LDAX" | "STAX" => {
@@ -354,6 +460,60 @@ fn parse_first_pass(
                                 stream.push(ParsedToken::Code(number));
                             }
                         }
+                        "INR" => {
+                            if let Token {
+                                position,
+                                token: TokenType::Register(reg),
+                            } = next_token(iterator, vec![TokenType::Register(Register::A)])?
+                            {
+                                stream.push(match reg {
+                                    Register::A => ParsedToken::Code(0x3c),
+                                    Register::B => ParsedToken::Code(0x04),
+                                    Register::C => ParsedToken::Code(0x0c),
+                                    Register::D => ParsedToken::Code(0x14),
+                                    Register::E => ParsedToken::Code(0x1c),
+                                    Register::H => ParsedToken::Code(0x24),
+                                    Register::L => ParsedToken::Code(0x2c),
+                                    Register::M => ParsedToken::Code(0x34),
+                                    _ => {
+                                        return Err(ParseError {
+                                            position,
+                                            error: ErrorKind::InvalidArguments(
+                                                "Register".to_owned(),
+                                                format!("{:?}", reg),
+                                            ),
+                                        })
+                                    }
+                                });
+                            }
+                        }
+                        "DCR" => {
+                            if let Token {
+                                position,
+                                token: TokenType::Register(reg),
+                            } = next_token(iterator, vec![TokenType::Register(Register::A)])?
+                            {
+                                stream.push(match reg {
+                                    Register::A => ParsedToken::Code(0x3d),
+                                    Register::B => ParsedToken::Code(0x05),
+                                    Register::C => ParsedToken::Code(0x0d),
+                                    Register::D => ParsedToken::Code(0x15),
+                                    Register::E => ParsedToken::Code(0x1d),
+                                    Register::H => ParsedToken::Code(0x25),
+                                    Register::L => ParsedToken::Code(0x2d),
+                                    Register::M => ParsedToken::Code(0x35),
+                                    _ => {
+                                        return Err(ParseError {
+                                            position,
+                                            error: ErrorKind::InvalidArguments(
+                                                "Register".to_owned(),
+                                                format!("{:?}", reg),
+                                            ),
+                                        })
+                                    }
+                                });
+                            }
+                        }
                         _ => unreachable!("should never happen!"),
                     }
                 }
@@ -389,7 +549,8 @@ fn assemble_tokens(tokens: &mut TokenStream) -> Result<Vec<u8>, ParseError> {
     Ok(second_pass(&symbol_table, &pre))
 }
 
-pub fn assemble_file(filename: &str) -> std::io::Result<Result<Vec<u8>, ParseError>> {
+pub fn assemble_file<P>(filename: P) -> std::io::Result<Result<Vec<u8>, ParseError>> 
+where P: AsRef<std::path::Path> {
     let file = File::open(filename)?;
     let mut reader = BufReader::new(&file);
     let mut buffer = String::new();

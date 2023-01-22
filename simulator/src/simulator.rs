@@ -30,7 +30,8 @@ pub struct Microcontroller {
     memory: [u8; 65535],
     io: [u8; 255],
     interrupts: bool,
-    running: bool
+    pub running: bool,
+    op_table: [crate::instructions::Instruction; 256]
 }
 
 pub enum Flag {
@@ -317,7 +318,8 @@ impl Microcontroller {
             memory: [0u8; 65535],
             io: [0u8; 255],
             interrupts: false,
-            running: false
+            running: false,
+            op_table
         }
     }
 
@@ -388,20 +390,20 @@ impl Microcontroller {
         use Register::{B, D, H, SP};
         match register {
             B => {
-                self.reg_b = (data << 8 >> 8) as u8;
-                self.reg_c = (data >> 8) as u8;
+                self.reg_c = (data << 8 >> 8) as u8;
+                self.reg_b = (data >> 8) as u8;
             }
             D => {
-                self.reg_d = (data << 8 >> 8) as u8;
-                self.reg_e = (data >> 8) as u8;
+                self.reg_e = (data << 8 >> 8) as u8;
+                self.reg_d = (data >> 8) as u8;
             }
             H => {
-                self.reg_h = (data << 8 >> 8) as u8;
-                self.reg_l = (data >> 8) as u8;
+                self.reg_l = (data << 8 >> 8) as u8;
+                self.reg_h = (data >> 8) as u8;
             }
             SP => {
-                self.stack_pointer.0 = (data << 8 >> 8) as u8;
-                self.stack_pointer.1 = (data >> 8) as u8;
+                self.stack_pointer.1 = (data << 8 >> 8) as u8;
+                self.stack_pointer.0 = (data >> 8) as u8;
             }
             _ => {
                 return Err("not a register pair");
@@ -420,9 +422,9 @@ impl Microcontroller {
             Carry => 0b00000001,
         };
         if value {
-            self.flags &= !mask;
-        } else {
             self.flags |= mask;
+        } else {
+            self.flags &= !mask;
         }
     }
 
@@ -441,10 +443,10 @@ impl Microcontroller {
     pub fn load_code(&mut self, code: &[u8], load_point: u16) -> Result<(), String> {
         let pc = load_point;
         let load_point = load_point as usize;
-        if load_point < MEMORY_LOWER_LIMIT {
+        /*if load_point < MEMORY_LOWER_LIMIT {
             Err(format!("Cant load at {load_point} as bytes till {MEMORY_LOWER_LIMIT} are reserved"))
-        }
-        else if code.len() + load_point > MEMORY_UPPER_LIMIT {
+        }*/
+        if code.len() + load_point > MEMORY_UPPER_LIMIT {
             Err(format!("Code does not fit inside memory when loaded at {load_point}"))
         } else {
             Ok({
@@ -468,7 +470,10 @@ impl Microcontroller {
     }
 
     pub fn start(&mut self) {
-        self.tick();
+        self.running = true;
+        while self.running {
+            self.tick().unwrap();
+        }
     }
 
     pub fn fetch(&mut self) -> u8 {
@@ -479,6 +484,7 @@ impl Microcontroller {
 
     pub fn execute(&mut self) {
         // TODO: execute instruction
+        self.op_table[self.instruction_register as usize](self);
     }
 
     pub fn check_parity(x: u8) -> bool {

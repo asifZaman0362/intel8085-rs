@@ -1,6 +1,6 @@
 mod error;
 mod lexer;
-mod assembler;
+pub mod assembler;
 mod token;
 
 #[cfg(test)]

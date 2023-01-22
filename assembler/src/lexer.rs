@@ -40,7 +40,7 @@ fn is_numeric(lexeme: &str) -> bool {
 }
 
 fn make_token(line_number: usize, col_num: usize, lexeme: &str) -> Result<Token, ParseError> {
-    if lexeme.to_lowercase().ends_with('h') || lexeme.to_lowercase().ends_with('k') {
+    if (lexeme.to_lowercase().ends_with('h') || lexeme.to_lowercase().ends_with('k')) && lexeme.len() > 1 {
         if let Ok(number) = u16::from_str_radix(&lexeme[..lexeme.len() - 1], 16) {
             if number < 256 {
                 return Ok(Token {
@@ -81,7 +81,7 @@ fn make_token(line_number: usize, col_num: usize, lexeme: &str) -> Result<Token,
             position: (line_number, col_num),
             token: TokenType::Operation(lexeme.to_owned()),
         });
-    } else if ["A", "B", "C", "D", "H", "L", "SP", "PSW"].contains(&lexeme.to_uppercase().as_str())
+    } else if ["A", "B", "C", "D", "E", "H", "L", "M", "SP", "PSW"].contains(&lexeme.to_uppercase().as_str())
     {
         return Ok(Token {
             position: (line_number, col_num),
@@ -117,8 +117,30 @@ pub fn tokenize(code: &str) -> Result<TokenStream, ParseError> {
     let mut tokens = vec![];
     let mut col_num = 1usize;
     let mut last_col = 0usize;
+    let mut comment = false;
+    let code = code.to_uppercase();
     for (i, char) in code.as_bytes().iter().enumerate() {
-        if [b' ', b'\t', b',', b':', b'\n', b'\r'].contains(&char) {
+        if comment {
+            if [b'\n', b'\r'].contains(&char) {
+                comment = false;
+                line_number += 1;
+                last_col = i + 1;
+                start = i + 1;
+            }
+            continue;
+        }
+        if *char == b';' {
+            if start == i {
+                start = i + 1;
+                col_num = (start - last_col) + 1;
+            }
+            else {
+                tokens.push(make_token(line_number, col_num, &code[start..i])?);
+            }
+            comment = true;
+            continue;
+        }
+        if [b' ', b'\t', b',', b':', b'\n', b'\r', b';'].contains(&char) {
             if start == i {
                 start = i + 1;
                 col_num = (start - last_col) + 1;
@@ -138,6 +160,8 @@ pub fn tokenize(code: &str) -> Result<TokenStream, ParseError> {
             } else if *char == b'\n' || *char == b'\r' {
                 line_number += 1;
                 last_col = i + 1;
+            } else if *char == b';' {
+                comment = true;
             }
             start = i + 1;
             col_num = (start - last_col) + 1;

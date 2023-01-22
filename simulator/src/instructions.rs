@@ -9,7 +9,11 @@ trait Arith<T> {
 
 impl Arith<u8> for u8 {
     fn sub(&self, other: Self) -> Self {
-        (*self as u16 + (!other + 1) as u16) as u8
+        if other == 0 {
+            *self
+        } else {
+            (*self as u16 + (!other + 1) as u16) as u8
+        }
     }
     fn add(&self, other: Self) -> Self {
         (*self as u16 + other as u16) as u8
@@ -29,7 +33,7 @@ fn _add(controller: &mut Microcontroller, other: u8, carry: u8) {
     let a = controller.get_register(Register::A).unwrap();
     let c = controller.check_flag(Flag::Carry) as u8 * carry;
     let sum = a.add(other).add(c);
-    let ac = (((a & 0b00001111) + c) + (other & 0b00001111)) > 0b00001001;
+    let ac = (((a & 0b00001111).add(c)).add(other & 0b00001111)) > 0b00001001;
     let c = (a as u16 + other as u16 + c as u16) > 255;
     controller.set_register(Register::A, sum).unwrap();
     controller.update_flags(ac, c);
@@ -79,8 +83,8 @@ fn _sub(controller : &mut Microcontroller, other: u8, carry: u8) {
     let a = controller.get_register(Register::A).unwrap();
     let c = controller.check_flag(Flag::Carry) as u8 * carry;
     let sum = a.sub(other).sub(c);
-    let ac = (((a & 0b00001111) - c) - (other & 0b00001111)) > 0b00001001;
-    let c = (a as i32 - other as i32 - c as i32) < 0;
+    let ac = (((a & 0b00001111).sub(c)).sub(other & 0b00001111)) > 0b00001001;
+    let c = (a.sub(other).sub(c)) > 127;
     controller.set_register(Register::A, sum).unwrap();
     controller.update_flags(ac, c);
 }
@@ -192,7 +196,7 @@ fn inr(controller: &mut Microcontroller, reg: Register) {
 fn dcr(controller: &mut Microcontroller, reg: Register) {
     let val = controller.get_register(reg).unwrap();
     let new_val = val.sub(1);
-    let c = val == 255;
+    let c = val == 0;
     controller.set_register(reg, new_val).unwrap();
     controller.set_flag(Flag::Zero, new_val == 0);
     controller.set_flag(Flag::Carry, c);
@@ -226,16 +230,16 @@ fn dcx(controller: &mut Microcontroller, reg: Register) {
 
 #[allow(dead_code)]
 fn lxi(controller: &mut Microcontroller, reg: Register) {
-    let high = controller.fetch();
     let low = controller.fetch();
+    let high = controller.fetch();
     let val = (high as u16) << 8 | low as u16;
     controller.set_register_pair(reg, val).unwrap();
 }
 
 #[allow(dead_code)]
 fn lda(controller: &mut Microcontroller) {
-    let high = controller.fetch();
     let low = controller.fetch();
+    let high = controller.fetch();
     let addr = (high as u16) << 8 | low as u16;
     controller.set_register(Register::A, controller.get_data_at(Some(addr))).unwrap();
 }
@@ -248,8 +252,8 @@ fn ldax(controller: &mut Microcontroller, reg: Register) {
 
 #[allow(dead_code)]
 fn lhld(controller: &mut Microcontroller) {
-    let high = controller.fetch();
     let low = controller.fetch();
+    let high = controller.fetch();
     let addr = (high as u16) << 8 | low as u16;
     controller.set_register(Register::L, controller.get_data_at(Some(addr))).unwrap();
     controller.set_register(Register::H, controller.get_data_at(Some(addr.add(1)))).unwrap();
@@ -257,8 +261,8 @@ fn lhld(controller: &mut Microcontroller) {
 
 #[allow(dead_code)]
 fn sta(controller: &mut Microcontroller) {
-    let high = controller.fetch();
     let low = controller.fetch();
+    let high = controller.fetch();
     let addr = (high as u16) << 8 | low as u16;
     controller.set_data_at(Some(addr), controller.get_register(Register::A).unwrap());
 }
@@ -271,15 +275,19 @@ fn stax(controller: &mut Microcontroller, reg: Register) {
 
 #[allow(dead_code)]
 fn shld(controller: &mut Microcontroller) {
-    let high = controller.fetch();
     let low = controller.fetch();
+    let high = controller.fetch();
     let addr = (high as u16) << 8 | low as u16;
     controller.set_data_at(Some(addr), controller.get_register(Register::L).unwrap());
     controller.set_data_at(Some(addr.add(1)), controller.get_register(Register::H).unwrap());
 }
 
 #[allow(dead_code)]
-fn call(controller: &mut Microcontroller) {
+fn call(controller: &mut Microcontroller, skip: bool) {
+    if skip {
+        controller.fetch();
+        controller.fetch();
+    }
     let stp = controller.get_register_pair(Register::SP).unwrap();
     controller.set_register_pair(Register::SP, stp.add(2)).unwrap();
     controller.set_data_at(Some(stp), (controller.program_counter >> 8) as u8);
@@ -298,11 +306,13 @@ fn ret(controller : &mut Microcontroller) {
 }
 
 #[allow(dead_code)]
-fn jmp(controller: &mut Microcontroller) {
-    let high = controller.fetch();
+fn jmp(controller: &mut Microcontroller, skip: bool) {
     let low = controller.fetch();
+    let high = controller.fetch();
     let addr = (high as u16) << 8 | low as u16;
-    controller.program_counter = addr;
+    if !skip {
+        controller.program_counter = addr;
+    }
 }
 
 #[allow(dead_code)]
@@ -681,7 +691,7 @@ pub static MVI_M: Instruction = |controller| mvi(controller, Register::M);
 pub static HLT: Instruction = |controller| controller.stop();
 #[allow(dead_code)]
 pub static CMA: Instruction = |controller| {
-    controller.set_register(Register::A, !controller.get_register(Register::A).unwrap());
+    controller.set_register(Register::A, !controller.get_register(Register::A).unwrap()).unwrap();
 };
 #[allow(dead_code)]
 pub static CMC: Instruction = |controller| {
@@ -782,29 +792,29 @@ pub static INX_H: Instruction = |controller| inx(controller, Register::H);
 #[allow(dead_code)]
 pub static INX_SP: Instruction = |controller| inx(controller, Register::SP);
 #[allow(dead_code)]
-pub static DCR_A: Instruction = |controller| inr(controller, Register::A);
+pub static DCR_A: Instruction = |controller| dcr(controller, Register::A);
 #[allow(dead_code)]
-pub static DCR_B: Instruction = |controller| inr(controller, Register::B);
+pub static DCR_B: Instruction = |controller| dcr(controller, Register::B);
 #[allow(dead_code)]
-pub static DCR_C: Instruction = |controller| inr(controller, Register::C);
+pub static DCR_C: Instruction = |controller| dcr(controller, Register::C);
 #[allow(dead_code)]
-pub static DCR_D: Instruction = |controller| inr(controller, Register::D);
+pub static DCR_D: Instruction = |controller| dcr(controller, Register::D);
 #[allow(dead_code)]
-pub static DCR_E: Instruction = |controller| inr(controller, Register::E);
+pub static DCR_E: Instruction = |controller| dcr(controller, Register::E);
 #[allow(dead_code)]
-pub static DCR_H: Instruction = |controller| inr(controller, Register::H);
+pub static DCR_H: Instruction = |controller| dcr(controller, Register::H);
 #[allow(dead_code)]
-pub static DCR_L: Instruction = |controller| inr(controller, Register::L);
+pub static DCR_L: Instruction = |controller| dcr(controller, Register::L);
 #[allow(dead_code)]
-pub static DCR_M: Instruction = |controller| inr(controller, Register::M);
+pub static DCR_M: Instruction = |controller| dcr(controller, Register::M);
 #[allow(dead_code)]
-pub static DCX_B: Instruction = |controller| inx(controller, Register::B);
+pub static DCX_B: Instruction = |controller| dcx(controller, Register::B);
 #[allow(dead_code)]
-pub static DCX_D: Instruction = |controller| inx(controller, Register::D);
+pub static DCX_D: Instruction = |controller| dcx(controller, Register::D);
 #[allow(dead_code)]
-pub static DCX_H: Instruction = |controller| inx(controller, Register::SP);
+pub static DCX_H: Instruction = |controller| dcx(controller, Register::H);
 #[allow(dead_code)]
-pub static DCX_SP: Instruction = |controller| inx(controller, Register::SP);
+pub static DCX_SP: Instruction = |controller| dcx(controller, Register::SP);
 #[allow(dead_code)]
 pub static LDA: Instruction = |controller| lda(controller);
 #[allow(dead_code)]
@@ -832,71 +842,63 @@ pub static LDAX_D: Instruction = |controller| lxi(controller, Register::D);
 #[allow(dead_code)]
 pub static STC: Instruction = |controller| controller.set_flag(Flag::Carry, true);
 #[allow(dead_code)]
-pub static JMP: Instruction = |controller| jmp(controller);
+pub static JMP: Instruction = |controller| jmp(controller, false);
 #[allow(dead_code)]
-pub static JP: Instruction = |controller| {
-    if !controller.check_flag(Flag::Sign) { jmp(controller); }
-};
+pub static JP: Instruction = |controller| jmp(controller, controller.check_flag(Flag::Sign));
 #[allow(dead_code)]
-pub static JM: Instruction = |controller| {
-    if controller.check_flag(Flag::Sign) { jmp(controller); }
-};
+pub static JM: Instruction = |controller| jmp(controller, !controller.check_flag(Flag::Sign));
 #[allow(dead_code)]
-pub static JC: Instruction = |controller| {
-    if controller.check_flag(Flag::Carry) { jmp(controller); }
-};
+pub static JC: Instruction = |controller| jmp(controller, !controller.check_flag(Flag::Carry));
 #[allow(dead_code)]
-pub static JNC: Instruction = |controller| {
-    if !controller.check_flag(Flag::Carry) { jmp(controller); }
-};
+pub static JNC: Instruction = |controller| jmp(controller, controller.check_flag(Flag::Carry));
 #[allow(dead_code)]
-pub static JZ: Instruction = |controller| {
-    if controller.check_flag(Flag::Carry) { jmp(controller); }
-};
+pub static JZ: Instruction = |controller| jmp(controller, !controller.check_flag(Flag::Zero));
 #[allow(dead_code)]
-pub static JNZ: Instruction = |controller| {
-    if !controller.check_flag(Flag::Carry) { jmp(controller); }
-};
+pub static JNZ: Instruction = |controller| jmp(controller, controller.check_flag(Flag::Zero));
 #[allow(dead_code)]
-pub static JPO: Instruction = |controller| {
-    if !controller.check_flag(Flag::Parity) { jmp(controller); }
-};
+pub static JPO: Instruction = |controller| jmp(controller, controller.check_flag(Flag::Parity));
 #[allow(dead_code)]
-pub static JPE: Instruction = |controller| {
-    if controller.check_flag(Flag::Parity) { jmp(controller); }
-};
+pub static JPE: Instruction = |controller| jmp(controller, !controller.check_flag(Flag::Parity));
 #[allow(dead_code)]
-pub static CALL: Instruction = |controller| call(controller);
+pub static CALL: Instruction = |controller| call(controller, false);
 #[allow(dead_code)]
 pub static CM: Instruction = |controller| {
-    if controller.check_flag(Flag::Sign) { call(controller); }
+    if controller.check_flag(Flag::Sign) { call(controller, false); }
+    else { call(controller, true) }
 };
 #[allow(dead_code)]
 pub static CP: Instruction = |controller| {
-    if controller.check_flag(Flag::Sign) { call(controller); }
+    if controller.check_flag(Flag::Sign) { call(controller, false); }
+    else { call(controller, true) }
 };
 #[allow(dead_code)]
 pub static CC: Instruction = |controller| {
-    if controller.check_flag(Flag::Carry) { call(controller); }
+    if controller.check_flag(Flag::Carry) { call(controller, false); }
+    else { call(controller, true) }
 };
 #[allow(dead_code)]
 pub static CNC: Instruction = |controller| {
-    if !controller.check_flag(Flag::Carry) { call(controller); }
+    if !controller.check_flag(Flag::Zero) { call(controller, false); }
+    else { call(controller, true) }
 };
 #[allow(dead_code)]
 pub static CZ: Instruction = |controller| {
-    if controller.check_flag(Flag::Carry) { call(controller); }
+    if controller.check_flag(Flag::Zero) { call(controller, false); }
+    else { call(controller, true) }
 };
 #[allow(dead_code)] pub static CNZ: Instruction = |controller| {
-    if !controller.check_flag(Flag::Carry) { call(controller); }
+    if !controller.check_flag(Flag::Carry) { call(controller, false); }
+    else { call(controller, true) }
 };
 #[allow(dead_code)]
 pub static CPE: Instruction = |controller| {
-    if controller.check_flag(Flag::Parity) { call(controller); }
+    if controller.check_flag(Flag::Parity) { call(controller, false); }
+    else { call(controller, true) }
 };
 #[allow(dead_code)]
 pub static CPO: Instruction = |controller| {
-    if !controller.check_flag(Flag::Parity) { call(controller); }
+    if !controller.check_flag(Flag::Parity) { call(controller, false); }
+    else { call(controller, true) }
 };
 #[allow(dead_code)]
 pub static RET: Instruction = |controller| ret(controller);
@@ -918,11 +920,11 @@ pub static RNC: Instruction = |controller| {
 };
 #[allow(dead_code)]
 pub static RZ: Instruction = |controller| {
-    if controller.check_flag(Flag::Carry) { ret(controller); }
+    if controller.check_flag(Flag::Zero) { ret(controller); }
 };
 #[allow(dead_code)]
 pub static RNZ: Instruction = |controller| {
-    if !controller.check_flag(Flag::Carry) { ret(controller); }
+    if !controller.check_flag(Flag::Zero) { ret(controller); }
 };
 #[allow(dead_code)]
 pub static RPE: Instruction = |controller| {
@@ -932,6 +934,7 @@ pub static RPE: Instruction = |controller| {
 pub static RPO: Instruction = |controller| {
     if !controller.check_flag(Flag::Parity) { ret(controller); }
 };
+#[allow(dead_code)]
 pub static RST_0: Instruction = |controller| reset(controller, 0);
 #[allow(dead_code)]
 pub static RST_1: Instruction = |controller| reset(controller, 1);
